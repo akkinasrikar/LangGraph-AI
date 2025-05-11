@@ -10,6 +10,7 @@ from langgraph.graph.message import add_messages
 from langchain_core.runnables.graph import MermaidDrawMethod
 import tempfile
 import os
+import streamlit.components.v1 as components
 
 # --- Define the state for LangGraph ---
 class State(TypedDict):
@@ -37,15 +38,10 @@ def generate_schema_node(state: State) -> State:
     user_input = state['messages'][-1].content if state['messages'] else ""
 
     prompt = f"""
-    Generate a JSON Schema and UI Schema for JSON Forms based on the following description:
-
-    "{user_input}"
-
-    Respond with ONLY a JSON object like:
-    {{
-        "json_schema": {{ ... }},
-        "ui_schema": {{ ... }}
-    }}
+            You are a form generator. Given a user's description, output a JSON schema.
+            Respond ONLY with a JSON object with: title, fields (name, type, label, required, etc.)
+            User Description: "{user_input}"
+            Respond with JSON only
     """
 
     response = llm.invoke(prompt)
@@ -63,11 +59,12 @@ graph_builder.set_entry_point("generate_schema")
 graph_builder.set_finish_point("generate_schema")
 graph = graph_builder.compile()
 
-
 # --- Streamlit UI ---
 st.set_page_config(page_title="Gemini JSON Forms Builder", layout="wide")
 st.title("🧠 JSON Forms Schema Generator (Gemini + LangGraph)")
 
+# --- Optional Diagram ---
+st.subheader("🧭 LangGraph Workflow Diagram")
 image = None
 # Save LangGraph diagram as PNG locally using Pyppeteer
 try:
@@ -83,9 +80,9 @@ except Exception as e:
     pass
 
 # --- LangGraph Visualization ---
-st.subheader("🧭 LangGraph Workflow Diagram")
 st.image(image, caption="LangGraph Workflow Diagram", use_column_width=False)
 
+# --- User Input ---
 st.subheader("📝 Describe your form:")
 form_description = st.text_area(
     "What fields should the form contain?",
@@ -112,10 +109,50 @@ if st.button("Generate Schema"):
                 st.error(result["error"])
             else:
                 st.subheader("📦 JSON Schema")
-                st.json(result.get("json_schema", {}))
+                st.json(result)
+                st.download_button("Download JSON Schema", json.dumps(result, indent=2), "json_schema.json")
 
-                st.subheader("🖼️ UI Schema")
-                st.json(result.get("ui_schema", {}))
+                # ---- Live Preview of JSON Form ----
+                st.subheader("🧪 Live JSON Form Preview")
+                json_schema_str = json.dumps(result.get("json_schema", {}))
+                ui_schema_str = json.dumps(result.get("ui_schema", {}))
 
-                st.download_button("Download JSON Schema", json.dumps(result.get("json_schema", {}), indent=2), "json_schema.json")
-                st.download_button("Download UI Schema", json.dumps(result.get("ui_schema", {}), indent=2), "ui_schema.json")
+                html_template = f"""
+                <!DOCTYPE html>
+                <html>
+                  <head>
+                    <meta charset="UTF-8" />
+                    <title>JSON Form Preview</title>
+                    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+                    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+                    <script src="https://unpkg.com/@jsonforms/core/bundles/jsonforms-core.umd.js"></script>
+                    <script src="https://unpkg.com/@jsonforms/react/bundles/jsonforms-react.umd.js"></script>
+                    <script src="https://unpkg.com/@jsonforms/react/vanilla/bundles/jsonforms-react-vanilla.umd.js"></script>
+                    <style>
+                      body {{ font-family: sans-serif; margin: 10px; }}
+                    </style>
+                  </head>
+                  <body>
+                    <div id="form"></div>
+                    <script type="text/javascript">
+                      const {{ JsonForms }} = window.JSONFormsReactVanilla;
+                      const schema = {json_schema_str};
+                      const uischema = {ui_schema_str};
+                      const render = () => {{
+                        ReactDOM.render(
+                          React.createElement(JsonForms, {{
+                            schema,
+                            uischema,
+                            data: {{}},
+                            renderers: window.JSONFormsReactVanilla.vanillaRenderers
+                          }}),
+                          document.getElementById('form')
+                        );
+                      }};
+                      render();
+                    </script>
+                  </body>
+                </html>
+                """
+
+                components.html(html_template, height=500, scrolling=True)
