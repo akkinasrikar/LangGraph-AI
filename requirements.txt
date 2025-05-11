@@ -7,3 +7,8 @@ python-dotenv
 langchain-groq
 arxiv
 wikipedia
+streamlit 
+langchain-google-genai 
+google-generativeai
+pyppeteer
+nest_asyncio
